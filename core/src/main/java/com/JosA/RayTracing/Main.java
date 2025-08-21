@@ -35,8 +35,8 @@ public class Main extends ApplicationAdapter {
     static double cameraAngXZ;
     static double cameraAngXY;
     
-    static double cameraSpeedPosVertical = 100;
-    static double cameraSpeedPosHorizonal = 100;
+    static double cameraSpeedPosVertical = 200;
+    static double cameraSpeedPosHorizonal = 200;
     
     static double cameraSpeedAngVerticalDEG = 0.1;
     static double cameraSpeedAngHorizontalDEG = 0.1;
@@ -49,11 +49,6 @@ public class Main extends ApplicationAdapter {
     static double[] vectorDirection;
 
     static double deltaTime;
-    
-    public Main(int OriginWidth, int OriginHeight) {
-    	Main.OriginWidth = OriginWidth;
-    	Main.OriginHeight = OriginHeight;
-    }
 
     public UniverseObjects[] universeObjects = new UniverseObjects[0];
     public Sphere sphere1;
@@ -62,19 +57,28 @@ public class Main extends ApplicationAdapter {
     //Optimising ray tracing loop
     public double halfWidth;
     public double halfHeight;
-    double tempOptimizer;
-    double totalAzimuthCos[];
-    double totalAzimuthSin[];
-    double totalElevationCos[];
-    double totalElevationSin[];
+    static double tempOptimizer;
+    static double[] angleYCos;
+    static double[] angleYSin;
+    static double[] angleXCos;
+    static double[] angleXSin;
+    static double cosXZ;
+    static double sinXZ;
+    static double cosXY;
+    static double sinXY;
+
 
     //Non changebal stuff
-    public final double rad90 = Math.toRadians(90);
-    public final double rad180 = Math.toRadians(180);
-    public final double rad270 = Math.toRadians(270);
-    public final double rad360 = Math.toRadians(360);
+    public final static double rad90 = Math.toRadians(90);
+    public final static double rad180 = Math.toRadians(180);
+    public final static double rad270 = Math.toRadians(270);
+    public final static double rad360 = Math.toRadians(360);
 
-    
+    public Main(int OriginWidth, int OriginHeight) {
+    	Main.OriginWidth = OriginWidth;
+    	Main.OriginHeight = OriginHeight;
+    }
+
     @Override
     public void create() {
         cameraSpeedAngVertical = Math.toRadians(cameraSpeedAngVerticalDEG);
@@ -85,11 +89,6 @@ public class Main extends ApplicationAdapter {
 
         halfWidth = OriginWidth/2.0;
         halfHeight = OriginHeight/2.0;
-        totalAzimuthCos = new double[OriginWidth];
-        totalAzimuthSin = new double[OriginWidth];
-        totalElevationCos = new double[OriginHeight];
-        totalElevationSin = new double[OriginHeight];
-
 
         batch = new SpriteBatch();
         viewport = new FitViewport(10,10);
@@ -99,10 +98,13 @@ public class Main extends ApplicationAdapter {
         sphere2 = new Sphere(500,500,700,70,Color.BLUE);
         universeObjects = new UniverseObjects[] {sphere1, sphere2};
         vectorDirection = new double[3];
+        updateCameraAng();
     }
 
     @Override
     public void render() {
+        long startTime = System.nanoTime();
+
     	Gdx.gl.glClearColor(0,0,0,1);
     	Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
     	ScreenUtils.clear(Color.BLACK);
@@ -140,65 +142,57 @@ public class Main extends ApplicationAdapter {
             Gdx.app.exit();
         }
         if(Gdx.input.isTouched()) {
-            cameraAngXZ += Gdx.input.getDeltaX() * cameraSpeedAngHorizontal;
-            cameraAngXZ = cameraAngXZ % rad360;
-            cameraAngXY += Gdx.input.getDeltaY() * cameraSpeedAngVertical;
-            if(cameraAngXY < -rad90) {
-                cameraAngXY = -rad90;
-            } else if(cameraAngXY > rad90) {
-                cameraAngXY = rad90;
+            updateCameraAng();
+
+        }
+        
+        double closestT;
+        double temperaryT;
+        Color[][] pixelColors = new Color[OriginWidth][OriginHeight];
+
+        //Chat Gpt however i optimize
+
+        for (int j = 0; j < OriginHeight; j++) {
+            for (int i = 0; i < OriginWidth; i++) {
+                vectorDirection[0] = angleYCos[j] * angleXCos[i]; // X
+                vectorDirection[1] = -angleYSin[j];                     // Y
+                vectorDirection[2] = -angleYCos[j] * angleXSin[i]; // Z
+
+                // Apply vertical (XY) rotation
+                double dirX = vectorDirection[0] * cosXY - vectorDirection[1] * sinXY;
+                double dirY = vectorDirection[0] * sinXY + vectorDirection[1] * cosXY;
+                vectorDirection[0] = dirX;
+                vectorDirection[1] = dirY;
+
+                // Apply horizontal (XZ) rotation
+                double newX = vectorDirection[0] * cosXZ + vectorDirection[2] * sinXZ;
+                double newZ = -vectorDirection[0] * sinXZ + vectorDirection[2] * cosXZ;
+                vectorDirection[0] = newX;
+                vectorDirection[2] = newZ;
+                //End Chat Gpt
+
+                closestT = Double.MAX_VALUE;
+                pixelColors[i][j] = Color.BLACK.cpy();
+                for(UniverseObjects obj : universeObjects){
+                    temperaryT = obj.intersects(vectorDirection);
+                    if(temperaryT != -1 && temperaryT < closestT) {
+                        closestT = temperaryT;
+                        pixelColors[i][j] = obj.color.cpy();
+                    }
+                }
+	        }
+	    }
+        for (int j = 0; j < OriginHeight; j++) {
+            for (int i = 0; i < OriginWidth; i++) {
+                pixmap.setColor(pixelColors[i][j]);
+                pixmap.drawPixel(i, j);
             }
         }
-
-        long startTime = System.nanoTime();
-
-        double closestT = Double.MAX_VALUE;
-        Color closestColor = Color.BLACK;
-        double temperaryT;
-
-        // Optimizing the ray tracing loop
-        
-        for(int i = 0 ; i < OriginWidth ; i++){
-            tempOptimizer = cameraAngXZ + (i - halfWidth) * dAng;
-            totalAzimuthCos[i] = Math.cos(tempOptimizer);
-            totalAzimuthSin[i] = Math.sin(tempOptimizer);
-        }
-        for(int j = 0 ; j < OriginHeight ; j++){
-            tempOptimizer = cameraAngXY + (j - halfHeight) * dAng;
-            totalElevationCos[j] = Math.cos(tempOptimizer);
-            totalElevationSin[j] = Math.sin(tempOptimizer);
-        }
-
-
-        for(int j = 0 ; j < OriginHeight ; j++) {
-                
-                vectorDirection[1] = -totalElevationSin[j];  // Y  
-                
-	        	for(int i = 0 ; i < OriginWidth ; i++) {
-                    closestT = Double.MAX_VALUE;
-                    closestColor = Color.BLACK.cpy();
-
-	        		// Proper 3D rotation
-	        		vectorDirection[0] = totalElevationCos[j] * totalAzimuthCos[i];  // X
-	        		vectorDirection[2] = -totalElevationCos[j] * totalAzimuthSin[i];  // Z
-	        		
-                    for(UniverseObjects obj : universeObjects){
-                        temperaryT = obj.intersects(vectorDirection);
-                        if(temperaryT != -1 && temperaryT < closestT) {
-                            closestT = temperaryT;
-                            closestColor = obj.color.cpy();
-                        }
-                    }
-                    
-                    pixmap.setColor(closestColor);
-                    pixmap.drawPixel(i, j);
-	        	}
-	        }
-
+            
         long endTime = System.nanoTime();
         double elapsedMs = (endTime - startTime) / 1_000_000.0;
         System.out.println("Time taken: " + elapsedMs + " ms");
-            
+
         pixmaptex.draw(pixmap, 0, 0);
         batch.draw(pixmaptex, 0, 0, 10, 10);
         batch.end();
@@ -208,12 +202,10 @@ public class Main extends ApplicationAdapter {
     public void resize(int width, int height) {
     	viewport.update(width, height, true);
         dAng = Math.toRadians(FOV) / width;
+        OriginWidth = width;
+        OriginHeight = height;
         halfWidth = OriginWidth/2.0;
         halfHeight = OriginHeight/2.0;
-        totalAzimuthCos = new double[width];
-        totalAzimuthSin = new double[width];
-        totalElevationCos = new double[height];
-        totalElevationSin = new double[height];
     }
 
     @Override
@@ -236,5 +228,35 @@ public class Main extends ApplicationAdapter {
         }else if(cameraPosZ > universeHieght) { 
             cameraPosZ = universeHieght;
         }
-    } 
+    }
+
+    public static void updateCameraAng(){
+        cameraAngXZ += Gdx.input.getDeltaX() * cameraSpeedAngHorizontal;
+        cameraAngXZ = cameraAngXZ % rad360;
+        cameraAngXY -= Gdx.input.getDeltaY() * cameraSpeedAngVertical;
+        if(cameraAngXY < -rad90) {
+            cameraAngXY = -rad90;
+        } else if(cameraAngXY > rad90) {
+            cameraAngXY = rad90;
+        }
+
+        angleYCos = new double[OriginHeight];
+        angleYSin = new double[OriginHeight];
+        for(int j = 0; j < OriginHeight; j++){
+            tempOptimizer = Math.toRadians(((j / (OriginHeight - 1.0)) * 2.0 - 1.0) * (FOV / 2.0));
+            angleYCos[j] = Math.cos(tempOptimizer);
+            angleYSin[j] = Math.sin(tempOptimizer);
+        }
+        angleXCos = new double[OriginHeight];
+        angleXSin = new double[OriginHeight];
+        for(int i = 0; i < OriginWidth; i++){
+            tempOptimizer = Math.toRadians(((i / (OriginWidth - 1.0)) * 2.0 - 1.0) * (FOV / 2.0));
+            angleXCos[i] = Math.cos(tempOptimizer);
+            angleXSin[i] = Math.sin(tempOptimizer);
+        }
+        cosXZ = Math.cos(cameraAngXZ);
+        sinXZ = Math.sin(cameraAngXZ);
+        cosXY = Math.cos(cameraAngXY);
+        sinXY = Math.sin(cameraAngXY);
+    }
 }
