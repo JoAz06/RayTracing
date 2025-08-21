@@ -1,18 +1,21 @@
 package com.JosA.RayTracing;
 
+import com.badlogic.gdx.graphics.Color;
+
 //import com.badlogic.gdx.graphics.Color;
 
-public class Sphere {
-    public double radius;
+public class Sphere extends UniverseObjects {
     public double centerX;
     public double centerY;
     public double centerZ;
+    public double radius;
 
-    public Sphere(double centerX, double centerY, double centerZ, double radius) {
+    public Sphere(double centerX, double centerY, double centerZ, double radius, Color color) {
         this.centerX = centerX;
         this.centerY = centerY;
         this.centerZ = centerZ;
         this.radius = radius;
+        this.color = new Color(color);
     }
 
     /*
@@ -24,7 +27,7 @@ public class Sphere {
         }
     }*/
     
-    public boolean intersects(double[] vectorDirection) {
+    public double intersects(double[] vectorDirection) {
     // Ray origin = camera position
     double ox = Main.cameraPosX;
     double oy = Main.cameraPosY;
@@ -48,7 +51,7 @@ public class Sphere {
     // Discriminant
     double disc = b*b - 4*a*c;
     if (disc < 0) {
-        return false; // no intersection
+        return -1; // no intersection
     }
 
     // Solve quadratic for t
@@ -57,6 +60,14 @@ public class Sphere {
     double t2 = (-b + sqrtDisc) / (2*a);
 
     // At least one positive t means the ray hits in front of the camera
-    return (t1 >= 0 || t2 >= 0);
+    if (t1 > 0 && t2 > 0) {
+    return Math.min(t1, t2);
+    }else if (t1 > 0) {
+        return t1;
+    }else if (t2 > 0) {
+        return t2;
+    }else {
+        return -1; // Both behind camera
+    }
 }
 }

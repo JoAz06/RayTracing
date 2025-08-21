@@ -32,19 +32,19 @@ public class Main extends ApplicationAdapter {
     
     static double cameraAngXZDEG = 0.0;
     static double cameraAngXYDEG = 0.0;
-    static double cameraAngXZ = Math.toRadians(cameraAngXZDEG);
-    static double cameraAngXY = Math.toRadians(cameraAngXYDEG);
+    static double cameraAngXZ;
+    static double cameraAngXY;
     
     static double cameraSpeedPosVertical = 100;
     static double cameraSpeedPosHorizonal = 100;
     
     static double cameraSpeedAngVerticalDEG = 0.1;
     static double cameraSpeedAngHorizontalDEG = 0.1;
-    static double cameraSpeedAngVertical = Math.toRadians(cameraSpeedAngVerticalDEG);
-    static double cameraSpeedAngHorizontal = Math.toRadians(cameraSpeedAngHorizontalDEG);
+    static double cameraSpeedAngVertical;
+    static double cameraSpeedAngHorizontal;
     
     static double FOV = 80;
-    static double dAng = Math.toRadians(FOV) / OriginWidth;
+    static double dAng;
 
     static double[] vectorDirection;
 
@@ -55,16 +55,49 @@ public class Main extends ApplicationAdapter {
     	Main.OriginHeight = OriginHeight;
     }
 
+    public UniverseObjects[] universeObjects = new UniverseObjects[0];
     public Sphere sphere1;
     public Sphere sphere2;
+
+    //Optimising ray tracing loop
+    public double halfWidth;
+    public double halfHeight;
+    double tempOptimizer;
+    double totalAzimuthCos[];
+    double totalAzimuthSin[];
+    double totalElevationCos[];
+    double totalElevationSin[];
+
+    //Non changebal stuff
+    public final double rad90 = Math.toRadians(90);
+    public final double rad180 = Math.toRadians(180);
+    public final double rad270 = Math.toRadians(270);
+    public final double rad360 = Math.toRadians(360);
+
     
     @Override
     public void create() {
+        cameraSpeedAngVertical = Math.toRadians(cameraSpeedAngVerticalDEG);
+        cameraSpeedAngHorizontal = Math.toRadians(cameraSpeedAngHorizontalDEG);
+        cameraAngXZ = Math.toRadians(cameraAngXZDEG);
+        cameraAngXY = Math.toRadians(cameraAngXYDEG);
+        dAng = Math.toRadians(FOV) / OriginWidth;
+
+        halfWidth = OriginWidth/2.0;
+        halfHeight = OriginHeight/2.0;
+        totalAzimuthCos = new double[OriginWidth];
+        totalAzimuthSin = new double[OriginWidth];
+        totalElevationCos = new double[OriginHeight];
+        totalElevationSin = new double[OriginHeight];
+
+
         batch = new SpriteBatch();
         viewport = new FitViewport(10,10);
         pixmap = new Pixmap( OriginWidth, OriginHeight, Format.RGBA8888 );
-        sphere1 = new Sphere(500,500,500,100);
-        sphere2 = new Sphere(500,500,700,70);
+        pixmaptex = new Texture(pixmap);
+        sphere1 = new Sphere(500,500,500,100,Color.RED);
+        sphere2 = new Sphere(500,500,700,70,Color.BLUE);
+        universeObjects = new UniverseObjects[] {sphere1, sphere2};
         vectorDirection = new double[3];
     }
 
@@ -80,16 +113,16 @@ public class Main extends ApplicationAdapter {
         deltaTime = Gdx.graphics.getDeltaTime();
 
         if(Gdx.input.isKeyPressed(Input.Keys.W)) {
-        	UpdateCameraPos(Math.toRadians(0));
+        	UpdateCameraPos(0);
         }
         if(Gdx.input.isKeyPressed(Input.Keys.A)) {
-        	UpdateCameraPos(Math.toRadians(270));
+        	UpdateCameraPos(rad270);
         }
         if(Gdx.input.isKeyPressed(Input.Keys.S)) {
-        	UpdateCameraPos(Math.toRadians(180));
+        	UpdateCameraPos(rad180);
         }
         if(Gdx.input.isKeyPressed(Input.Keys.D)) {
-        	UpdateCameraPos(Math.toRadians(90));
+        	UpdateCameraPos(rad90);
         }
         if(Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
         	cameraPosY += cameraSpeedPosVertical * deltaTime;
@@ -108,61 +141,79 @@ public class Main extends ApplicationAdapter {
         }
         if(Gdx.input.isTouched()) {
             cameraAngXZ += Gdx.input.getDeltaX() * cameraSpeedAngHorizontal;
-            cameraAngXZ = cameraAngXZ % Math.toRadians(360);
+            cameraAngXZ = cameraAngXZ % rad360;
             cameraAngXY += Gdx.input.getDeltaY() * cameraSpeedAngVertical;
-            if(cameraAngXY < Math.toRadians(-90)) {
-                cameraAngXY = Math.toRadians(-90);
-            } else if(cameraAngXY > Math.toRadians(90)) {
-                cameraAngXY = Math.toRadians(90);
+            if(cameraAngXY < -rad90) {
+                cameraAngXY = -rad90;
+            } else if(cameraAngXY > rad90) {
+                cameraAngXY = rad90;
             }
         }
 
         long startTime = System.nanoTime();
 
-        for(int j = 0 ; j < OriginHeight ; j++) {
-	        	for(int i = 0 ; i < OriginWidth ; i++) {
-	        		// Calculate pixel's angular offset from center
-	        		double pixelOffsetH = (i - OriginWidth/2.0) * dAng;   // horizontal offset
-	        		double pixelOffsetV = (j - OriginHeight/2.0) * dAng;  // vertical offset
+        double closestT = Double.MAX_VALUE;
+        Color closestColor = Color.BLACK;
+        double temperaryT;
 
-	        		// Combine with camera rotation
-	        		double totalAzimuth = cameraAngXZ + pixelOffsetH;
-	        		double totalElevation = cameraAngXY + pixelOffsetV;
+        // Optimizing the ray tracing loop
+        
+        for(int i = 0 ; i < OriginWidth ; i++){
+            tempOptimizer = cameraAngXZ + (i - halfWidth) * dAng;
+            totalAzimuthCos[i] = Math.cos(tempOptimizer);
+            totalAzimuthSin[i] = Math.sin(tempOptimizer);
+        }
+        for(int j = 0 ; j < OriginHeight ; j++){
+            tempOptimizer = cameraAngXY + (j - halfHeight) * dAng;
+            totalElevationCos[j] = Math.cos(tempOptimizer);
+            totalElevationSin[j] = Math.sin(tempOptimizer);
+        }
+
+
+        for(int j = 0 ; j < OriginHeight ; j++) {
+                
+                vectorDirection[1] = -totalElevationSin[j];  // Y  
+                
+	        	for(int i = 0 ; i < OriginWidth ; i++) {
+                    closestT = Double.MAX_VALUE;
+                    closestColor = Color.BLACK.cpy();
 
 	        		// Proper 3D rotation
-	        		vectorDirection[0] = Math.cos(totalElevation) * Math.cos(totalAzimuth);  // X
-	        		vectorDirection[1] = -Math.sin(totalElevation);                           // Y  
-	        		vectorDirection[2] = -Math.cos(totalElevation) * Math.sin(totalAzimuth);  // Z
+	        		vectorDirection[0] = totalElevationCos[j] * totalAzimuthCos[i];  // X
+	        		vectorDirection[2] = -totalElevationCos[j] * totalAzimuthSin[i];  // Z
 	        		
-	        		if(sphere1.intersects(vectorDirection) && sphere2.intersects(vectorDirection)){
-                        pixmap.setColor(Color.PURPLE);
-                    }else if(sphere2.intersects(vectorDirection)){
-                        pixmap.setColor(Color.BLUE);
-                    }else if(sphere1.intersects(vectorDirection)){
-                        pixmap.setColor(Color.RED); 
-                    }else{
-                        pixmap.setColor(Color.BLACK);
+                    for(UniverseObjects obj : universeObjects){
+                        temperaryT = obj.intersects(vectorDirection);
+                        if(temperaryT != -1 && temperaryT < closestT) {
+                            closestT = temperaryT;
+                            closestColor = obj.color.cpy();
+                        }
                     }
-                    pixmap.drawPixel(i, j);
                     
+                    pixmap.setColor(closestColor);
+                    pixmap.drawPixel(i, j);
 	        	}
 	        }
 
-
-            long endTime = System.nanoTime();
-	        double elapsedMs = (endTime - startTime) / 1_000_000.0;
-	        System.out.println("Time taken: " + elapsedMs + " ms");
-
-        pixmaptex = new Texture(pixmap);
+        long endTime = System.nanoTime();
+        double elapsedMs = (endTime - startTime) / 1_000_000.0;
+        System.out.println("Time taken: " + elapsedMs + " ms");
+            
+        pixmaptex.draw(pixmap, 0, 0);
         batch.draw(pixmaptex, 0, 0, 10, 10);
         batch.end();
-        pixmaptex.dispose();
     }
     
     @Override
     public void resize(int width, int height) {
     	viewport.update(width, height, true);
         dAng = Math.toRadians(FOV) / width;
+        halfWidth = OriginWidth/2.0;
+        halfHeight = OriginHeight/2.0;
+        totalAzimuthCos = new double[width];
+        totalAzimuthSin = new double[width];
+        totalElevationCos = new double[height];
+        totalElevationSin = new double[height];
     }
 
     @Override
